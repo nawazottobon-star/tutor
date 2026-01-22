@@ -87,8 +87,8 @@ export function SiteHeader({
     <header className={cn("border-b border-gray-100/50 pb-4", className)}>
       <div className="flex items-center gap-4">
         <div className="font-extrabold text-2xl tracking-tight text-gray-900">
-          Meta
-          <i className={cn(BRAND_ACCENT_TEXT, "not-italic")}>Learn</i>{" "}
+          Otto
+          <i className={cn(BRAND_ACCENT_TEXT, "not-italic")}>learn</i>{" "}
           <em className={cn(BRAND_PRIMARY_TEXT, "not-italic")}>◈</em>
         </div>
 

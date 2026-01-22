@@ -94,7 +94,7 @@ export async function askCourseAssistant(options: {
     }
 
     const prompt = buildPrompt({
-      courseTitle: options.courseTitle ?? "MetaLearn Course",
+      courseTitle: options.courseTitle ?? "Ottolearn Course",
       question: sanitizedQuestion,
       contexts,
       summary: options.summary ?? null,
@@ -150,11 +150,11 @@ function buildPrompt(params: {
   const historyBlock =
     params.conversation && params.conversation.length > 0
       ? [
-          "Recent conversation:",
-          params.conversation
-            .map((turn) => `${turn.role === "user" ? "User" : "Assistant"}: ${turn.content}`)
-            .join("\n"),
-        ].join("\n")
+        "Recent conversation:",
+        params.conversation
+          .map((turn) => `${turn.role === "user" ? "User" : "Assistant"}: ${turn.content}`)
+          .join("\n"),
+      ].join("\n")
       : "";
   const personaBlock = params.personaPrompt?.trim()
     ? `Learner personalization:\n${params.personaPrompt.trim()}`

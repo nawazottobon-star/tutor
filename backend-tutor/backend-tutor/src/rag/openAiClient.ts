@@ -45,7 +45,7 @@ async function runChatCompletion(options: {
 
 export async function generateAnswerFromContext(prompt: string): Promise<string> {
   return runChatCompletion({
-    systemPrompt: "You are MetaLearn's AI mentor. Answer with warmth and clarity using only the provided course material.",
+    systemPrompt: "You are Ottolearn's AI mentor. Answer with warmth and clarity using only the provided course material.",
     userPrompt: prompt,
   });
 }
@@ -112,7 +112,7 @@ export async function summarizeConversation(options: {
 export async function generateTutorCopilotAnswer(prompt: string): Promise<string> {
   return runChatCompletion({
     systemPrompt:
-      "You are MetaLearn's tutor analytics copilot. Use only the provided learner roster and stats. Call out concrete numbers, " +
+      "You are Ottolearn's tutor analytics copilot. Use only the provided learner roster and stats. Call out concrete numbers, " +
       "flag at-risk learners, and keep responses concise (3-5 sentences). If information is missing, say so directly.",
     userPrompt: prompt,
     temperature: 0.15,

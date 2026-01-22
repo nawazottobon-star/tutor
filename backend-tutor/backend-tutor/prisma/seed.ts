@@ -120,7 +120,7 @@ const PAGE_CONTENT: PageContentSeed[] = [
   {
     slug: "about",
     title: "Learning that moves careers forward",
-    subtitle: "MetaLearn blends industry projects, senior mentors, and adaptive AI guidance so learners build skills with confidence.",
+    subtitle: "Ottolearn blends industry projects, senior mentors, and adaptive AI guidance so learners build skills with confidence.",
     heroImage: "https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=1600&q=80",
     sections: {
       stats: [
@@ -236,22 +236,22 @@ async function loadTopicsFromCsv(csvPath: string, courseId: string): Promise<Pri
     return records
       .filter((record) => record.course_id === courseId)
       .map((record) => {
-      const moduleNo = Number.parseInt(record.module_no, 10);
-      const topicNumber = Number.parseInt(record.topic_number, 10);
+        const moduleNo = Number.parseInt(record.module_no, 10);
+        const topicNumber = Number.parseInt(record.topic_number, 10);
 
-      return {
-        topicId: record.topic_id,
-        courseId: record.course_id,
-        moduleNo: Number.isNaN(moduleNo) ? 0 : moduleNo,
-        moduleName: record.module_name?.trim() ?? "",
-        topicNumber: Number.isNaN(topicNumber) ? 0 : topicNumber,
-        topicName: record.topic_name?.trim() ?? "",
-        contentType: record.content_type?.trim().toLowerCase() ?? "video",
-        videoUrl: record.video_url?.trim() || null,
-        textContent: normaliseLineEndings(record.text_content),
-        isPreview: toBoolean(record.is_preview),
-      };
-    });
+        return {
+          topicId: record.topic_id,
+          courseId: record.course_id,
+          moduleNo: Number.isNaN(moduleNo) ? 0 : moduleNo,
+          moduleName: record.module_name?.trim() ?? "",
+          topicNumber: Number.isNaN(topicNumber) ? 0 : topicNumber,
+          topicName: record.topic_name?.trim() ?? "",
+          contentType: record.content_type?.trim().toLowerCase() ?? "video",
+          videoUrl: record.video_url?.trim() || null,
+          textContent: normaliseLineEndings(record.text_content),
+          isPreview: toBoolean(record.is_preview),
+        };
+      });
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
       console.warn(`Topics CSV not found at ${csvPath}. Skipping topic seeding.`);

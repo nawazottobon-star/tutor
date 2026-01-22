@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Mail, Sparkles, Loader2 } from 'lucide-react';
+import { Mail, Sparkles, Loader2, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 
 type TutorCourse = {
@@ -91,6 +98,31 @@ type CourseTopic = {
   moduleName?: string;
 };
 
+const NumberTicker = ({ value, suffix = "" }: { value: number; suffix?: string }) => {
+  const count = useMotionValue(0);
+  const rounded = useTransform(count, (latest) => Math.round(latest));
+  const [displayValue, setDisplayValue] = useState(0);
+  const hasAnimated = useRef(false);
+
+  useEffect(() => {
+    if (value > 0 && !hasAnimated.current) {
+      animate(count, value, {
+        duration: 1.2,
+        ease: "easeOut",
+      });
+      hasAnimated.current = true;
+    } else if (hasAnimated.current) {
+      count.set(value);
+    }
+  }, [value]);
+
+  useEffect(() => {
+    return rounded.onChange((v) => setDisplayValue(v));
+  }, [rounded]);
+
+  return <span>{displayValue}{suffix}</span>;
+};
+
 export default function TutorDashboardPage() {
   const session = readStoredSession();
   const { toast } = useToast();
@@ -106,7 +138,21 @@ export default function TutorDashboardPage() {
   const [emailSending, setEmailSending] = useState(false);
   const [isImprovingEmail, setIsImprovingEmail] = useState(false);
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
+  const [isAssistantSheetOpen, setIsAssistantSheetOpen] = useState(false);
+  const assistantChatRef = useRef<HTMLDivElement>(null);
 
+  const QUICK_PROMPTS = [
+    "Which learners are inactive this week?",
+    "Summarize course completion by module",
+    "Show engagement trends for my classes"
+  ];
+
+  // Auto-scroll to bottom of assistant chat
+  useEffect(() => {
+    if (assistantChatRef.current) {
+      assistantChatRef.current.scrollTop = assistantChatRef.current.scrollHeight;
+    }
+  }, [assistantMessages, assistantLoading, isAssistantSheetOpen]);
 
   useEffect(() => {
     if (!session) {
@@ -272,16 +318,7 @@ export default function TutorDashboardPage() {
     }
   });
 
-  useEffect(() => {
-    const learners = activityResponse?.learners ?? [];
-    if (learners.length === 0) {
-      setSelectedLearnerId(null);
-      return;
-    }
-    if (!selectedLearnerId || !learners.some((learner) => learner.userId === selectedLearnerId)) {
-      setSelectedLearnerId(learners[0].userId);
-    }
-  }, [activityResponse?.learners, selectedLearnerId]);
+
 
   const learnerDirectory = useMemo(() => {
     const map = new Map<string, { fullName?: string; email?: string }>();
@@ -418,9 +455,8 @@ export default function TutorDashboardPage() {
     setLocation('/become-a-tutor');
   };
 
-  const handleAssistantSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selectedCourseId || !assistantInput.trim()) {
+  const performAssistantQuery = async (question: string) => {
+    if (!selectedCourseId || !question.trim()) {
       return;
     }
 
@@ -429,11 +465,11 @@ export default function TutorDashboardPage() {
       return;
     }
 
-    const question = assistantInput.trim();
+    const trimmedQuestion = question.trim();
     const userMessage: TutorAssistantMessage = {
       id: `${Date.now()}-${Math.random()}`,
       role: 'user',
-      content: question,
+      content: trimmedQuestion,
       timestamp: new Date().toISOString()
     };
 
@@ -445,7 +481,7 @@ export default function TutorDashboardPage() {
       const response = await apiRequest(
         'POST',
         '/api/tutors/assistant/query',
-        { courseId: selectedCourseId, question },
+        { courseId: selectedCourseId, question: trimmedQuestion },
         { headers }
       );
       const payload = await response.json();
@@ -465,6 +501,11 @@ export default function TutorDashboardPage() {
     } finally {
       setAssistantLoading(false);
     }
+  };
+
+  const handleAssistantSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await performAssistantQuery(assistantInput);
   };
 
   const handleOpenEmailModal = (students: { email: string; fullName: string } | Array<{ email: string; fullName: string }>) => {
@@ -633,20 +674,27 @@ export default function TutorDashboardPage() {
   ];
 
   const overviewStats = [
-    { label: 'Active learners', value: totalEnrollments, helper: `${activitySummary.engaged} currently engaged` },
+    { label: 'Active learners', value: totalEnrollments, suffix: '', helper: `${activitySummary.engaged} currently engaged` },
     {
       label: 'Avg. progress',
-      value: `${averageProgressPercent}%`,
+      value: averageProgressPercent,
+      suffix: '%',
       helper: progressResponse?.totalModules ? `${progressResponse.totalModules} modules tracked` : 'Across current cohort'
     },
     {
       label: 'Critical alerts',
       value: activitySummary.content_friction,
+      suffix: '',
       helper: 'Content friction signals'
     }
   ];
 
   const handleSectionNav = (sectionId: string) => {
+    if (sectionId === 'copilot') {
+      setIsAssistantSheetOpen(true);
+      return;
+    }
+
     if (typeof document === 'undefined') {
       return;
     }
@@ -666,7 +714,7 @@ export default function TutorDashboardPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-muted-foreground text-sm">Use your tutor credentials to access the dashboard.</p>
-              <Button onClick={() => setLocation('/login')}>Go to tutor login</Button>
+              <Button onClick={() => setLocation('/become-a-tutor')}>Go to landing page</Button>
             </CardContent>
           </Card>
         </div>
@@ -728,15 +776,6 @@ export default function TutorDashboardPage() {
                   >
                     Logout
                   </Button>
-                  {selectedEmails.size > 0 && (
-                    <Button
-                      onClick={handleBulkEmail}
-                      className="bg-emerald-600 text-white hover:bg-emerald-500 animate-in fade-in slide-in-from-left-2"
-                    >
-                      <Mail className="mr-2 h-4 w-4" />
-                      Email Group ({selectedEmails.size})
-                    </Button>
-                  )}
                 </div>
                 {courses.length > 0 && selectedCourseId && (
                   <p className="text-sm text-slate-600">
@@ -750,10 +789,12 @@ export default function TutorDashboardPage() {
               </div>
               <div className="grid flex-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {overviewStats.map((stat) => (
-                  <div key={stat.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">{stat.label}</p>
-                    <p className="mt-2 text-3xl font-semibold text-slate-900">{stat.value}</p>
-                    <p className="text-sm text-slate-600">{stat.helper}</p>
+                  <div key={stat.label} className="flex flex-col h-full min-h-[140px] rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">{stat.label}</p>
+                    <div className="mt-2 text-4xl font-bold text-slate-900 tracking-tight">
+                      <NumberTicker value={stat.value} suffix={stat.suffix} />
+                    </div>
+                    <p className="mt-auto pt-4 text-[11px] font-medium text-slate-500 leading-relaxed border-t border-slate-200/50">{stat.helper}</p>
                   </div>
                 ))}
               </div>
@@ -801,62 +842,44 @@ export default function TutorDashboardPage() {
                     </Select>
                   </div>
                 </CardHeader>
-                <CardContent className="overflow-x-auto">
+                <CardContent>
                   {enrollmentsLoading ? (
                     <p className="text-sm text-slate-600">Loading enrollments...</p>
                   ) : (enrollmentsResponse?.enrollments ?? []).length === 0 ? (
                     <p className="text-sm text-slate-600">No enrollments yet.</p>
                   ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[40px]"></TableHead>
-                          <TableHead className="text-slate-500">Learner</TableHead>
-                          <TableHead className="text-slate-500">Email</TableHead>
-                          <TableHead className="text-slate-500">Status</TableHead>
-                          <TableHead className="text-slate-500">Enrolled</TableHead>
-                          <TableHead className="text-slate-500 text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(enrollmentsResponse?.enrollments ?? []).map((enrollment) => (
-                          <TableRow key={enrollment.enrollmentId} className="border-slate-100">
-                            <TableCell>
-                              <input
-                                type="checkbox"
-                                checked={selectedEmails.has(enrollment.email)}
-                                onChange={() => toggleEmailSelection(enrollment.email)}
-                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                              />
-                            </TableCell>
-                            <TableCell className="text-slate-900">
-                              {enrollment.fullName}
-                            </TableCell>
-                            <TableCell className="text-slate-600">{enrollment.email}</TableCell>
-                            <TableCell>
-                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs capitalize text-emerald-700">
-                                {enrollment.status}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-slate-600">{new Date(enrollment.enrolledAt).toLocaleDateString()}</TableCell>
-
-
-                            <TableCell className="text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0 text-slate-500 hover:text-emerald-600"
-                                onClick={() => handleOpenEmailModal({ email: enrollment.email, fullName: enrollment.fullName })}
-                              >
-                                <Mail className="h-4 w-4" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <div className="relative group/scroll">
+                      <div className="max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 hover:scrollbar-thumb-slate-300 scroll-smooth pr-2">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-slate-500">Learner</TableHead>
+                              <TableHead className="text-slate-500">Email</TableHead>
+                              <TableHead className="text-slate-500">Status</TableHead>
+                              <TableHead className="text-slate-500">Enrolled</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(enrollmentsResponse?.enrollments ?? []).map((enrollment) => (
+                              <TableRow key={enrollment.enrollmentId} className="border-slate-100">
+                                <TableCell className="text-slate-900 font-medium">
+                                  {enrollment.fullName}
+                                </TableCell>
+                                <TableCell className="text-slate-600 text-xs">{enrollment.email}</TableCell>
+                                <TableCell>
+                                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">
+                                    {enrollment.status}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-slate-500 text-xs">{new Date(enrollment.enrolledAt).toLocaleDateString()}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent opacity-60" />
+                    </div>
                   )}
-
                 </CardContent>
               </Card>
 
@@ -867,64 +890,53 @@ export default function TutorDashboardPage() {
                     Average completion {averageProgressPercent}% across {progressResponse?.totalModules ?? 0} modules
                   </p>
                 </CardHeader>
-                <CardContent className="overflow-x-auto">
+                <CardContent>
                   {progressLoading ? (
                     <p className="text-sm text-slate-600">Loading progress...</p>
                   ) : (progressResponse?.learners ?? []).length === 0 ? (
                     <p className="text-sm text-slate-600">No progress yet.</p>
                   ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[40px]"></TableHead>
-                          <TableHead className="text-slate-500">Learner</TableHead>
-                          <TableHead className="text-slate-500">Modules</TableHead>
-                          <TableHead className="text-slate-500">Percent</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(progressResponse?.learners ?? []).map((learner) => (
-                          <TableRow key={learner.userId} className="border-slate-100">
-                            <TableCell>
-                              <input
-                                type="checkbox"
-                                checked={selectedEmails.has(learner.email)}
-                                onChange={() => toggleEmailSelection(learner.email)}
-                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <div className="font-semibold text-slate-900">{learner.fullName}</div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-slate-500">{learner.email}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEmailModal({ email: learner.email, fullName: learner.fullName })}
-                                  className="text-slate-400 hover:text-emerald-600 transition"
-                                >
-                                  <Mail className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-slate-700">
-                              {learner.completedModules}/{learner.totalModules}
-                            </TableCell>
-                            <TableCell className="text-slate-900">
-                              <div className="flex items-center gap-3">
-                                <div className="h-2 flex-1 rounded-full bg-slate-200">
-                                  <div
-                                    className="h-full rounded-full bg-gradient-to-r from-sky-500 to-blue-600"
-                                    style={{ width: `${learner.percent}%` }}
-                                  />
-                                </div>
-                                <span>{learner.percent}%</span>
-                              </div>
-                            </TableCell>
-                          </TableRow>
+                    <div className="relative group/scroll">
+                      <div className="max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 hover:scrollbar-thumb-slate-300 scroll-smooth pr-2">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-slate-500">Learner</TableHead>
+                              <TableHead className="text-slate-500">Modules</TableHead>
+                              <TableHead className="text-slate-500">Percent</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(progressResponse?.learners ?? []).map((learner) => (
+                              <TableRow key={learner.userId} className="border-slate-100">
 
-                        ))}
-                      </TableBody>
-                    </Table>
+                                <TableCell>
+                                  <div className="font-semibold text-slate-900">{learner.fullName}</div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">{learner.email}</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-slate-700 text-xs">
+                                  {learner.completedModules}/{learner.totalModules}
+                                </TableCell>
+                                <TableCell className="text-slate-900">
+                                  <div className="flex items-center gap-3">
+                                    <div className="h-2 flex-1 rounded-full bg-slate-200">
+                                      <div
+                                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-600"
+                                        style={{ width: `${learner.percent}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs font-bold">{learner.percent}%</span>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                      <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent opacity-60" />
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -932,39 +944,55 @@ export default function TutorDashboardPage() {
           </section>
 
           <section id="monitoring" className="mt-12 space-y-6">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">Live monitor</p>
-              <h2 className="text-2xl font-semibold text-slate-900">Engagement & Alerts</h2>
-              <p className="text-sm text-slate-600">
-                Engagement states synthesized from system logs, idle heuristics, cold calls, personas, and quiz telemetry.
-              </p>
-            </div>
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-              <div className="flex flex-wrap gap-2">
-                {statusOrder.map((key) => (
-                  <div
-                    key={key}
-                    className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700"
-                  >
-                    <span className={`h-2 w-2 rounded-full ${statusMeta[key].dotClass}`} />
-                    <div>
-                      <p className="font-semibold leading-none text-slate-900">{statusMeta[key].label}</p>
-                      <p className="text-[10px] text-slate-500">{activitySummary[key]} learners</p>
-                    </div>
-                  </div>
-                ))}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">Intervention Zone</p>
+                <h2 className="text-2xl font-semibold text-slate-900">Engagement & Alerts</h2>
+                <p className="text-sm text-slate-600">
+                  Assess signals and take directed action to guide learners back to flow.
+                </p>
               </div>
-              <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-                <div className="space-y-3">
+              {selectedEmails.size > 0 && (
+                <Button
+                  onClick={handleBulkEmail}
+                  className="bg-emerald-600 text-white hover:bg-emerald-500 animate-in fade-in slide-in-from-right-2"
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  Email Group ({selectedEmails.size})
+                </Button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2 mt-4">
+              {statusOrder.map((key) => (
+                <div
+                  key={key}
+                  className="flex items-center gap-2 rounded-full border border-slate-100 bg-white px-3 py-1 shadow-sm transition hover:border-slate-200"
+                >
+                  <span className={`h-2 w-2 rounded-full ${statusMeta[key].dotClass} animate-pulse`} />
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-700">{statusMeta[key].label}</p>
+                    <span className="h-1 w-1 rounded-full bg-slate-200" />
+                    <p className="text-[10px] font-medium text-slate-500">{activitySummary[key]}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2 mt-6">
+              <Card className="border-slate-200 bg-white text-slate-900 shadow-md flex flex-col">
+                <CardHeader>
+                  <CardTitle className="text-slate-900">Alert Feed</CardTitle>
                   <p className="text-xs text-slate-500">
                     {activityFetching ? 'Refreshing telemetry...' : 'Snapshots refresh automatically every 30 seconds.'}
                   </p>
-                  {activityError && (
+                </CardHeader>
+                <CardContent className="flex-1">
+                  {activityError ? (
                     <p className="text-sm text-rose-500">
                       Unable to load learner telemetry right now. Please retry shortly.
                     </p>
-                  )}
-                  {activityLoading ? (
+                  ) : activityLoading ? (
                     <div className="space-y-3">
                       {[0, 1, 2].map((index) => (
                         <Skeleton key={index} className="h-24 w-full rounded-2xl bg-slate-100" />
@@ -975,53 +1003,84 @@ export default function TutorDashboardPage() {
                       No telemetry yet. As learners watch, read, attempt quizzes, or interact with widgets, they will appear here.
                     </p>
                   ) : (
-                    <div className="space-y-2">
-                      {(activityResponse?.learners ?? []).map((learner) => {
-                        const identity = learnerDirectory.get(learner.userId);
-                        const key = (learner.derivedStatus ?? 'unknown') as keyof typeof statusMeta;
-                        const meta = statusMeta[key];
-                        const isActive = selectedLearnerId === learner.userId;
-                        const reasonLabel = formatStatusReason(learner.statusReason);
-                        return (
-                          <button
-                            type="button"
-                            key={learner.userId}
-                            onClick={() => setSelectedLearnerId(learner.userId)}
-                            className={`w-full rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 ${isActive ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white hover:bg-slate-50'
-                              }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-900">
-                                  {identity?.fullName ?? 'Learner'}{' '}
-                                  {!identity?.fullName && (
-                                    <span className="text-xs text-slate-500">({learner.userId.slice(0, 6)})</span>
-                                  )}
-                                </p>
-                                <p className="text-xs text-slate-500">{identity?.email ?? 'Email unavailable'}</p>
+                    <div className="relative group/scroll">
+                      <div className="max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 hover:scrollbar-thumb-slate-300 scroll-smooth pr-2 pb-12">
+                        <div className="space-y-2">
+                          {(activityResponse?.learners ?? []).map((learner) => {
+                            const identity = learnerDirectory.get(learner.userId);
+                            const key = (learner.derivedStatus ?? 'unknown') as keyof typeof statusMeta;
+                            const meta = statusMeta[key];
+                            const isActive = selectedLearnerId === learner.userId;
+                            const reasonLabel = formatStatusReason(learner.statusReason);
+                            return (
+                              <div key={learner.userId} className="flex items-center gap-3 pr-2">
+                                <input
+                                  type="checkbox"
+                                  checked={identity?.email ? selectedEmails.has(identity.email) : false}
+                                  onChange={() => identity?.email && toggleEmailSelection(identity.email)}
+                                  disabled={!identity?.email}
+                                  className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedLearnerId(learner.userId)}
+                                  className={`flex-1 rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 ${isActive ? 'border-emerald-200 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:bg-slate-50'
+                                    }`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-900 line-clamp-1">
+                                        {identity?.fullName ?? 'Learner'}{' '}
+                                        {!identity?.fullName && (
+                                          <span className="text-xs text-slate-500">({learner.userId.slice(0, 6)})</span>
+                                        )}
+                                      </p>
+                                      <p className="text-[11px] text-slate-500 truncate">{identity?.email ?? 'Email unavailable'}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <Badge variant="secondary" className={`${meta.badgeClass} border-0 text-[10px]`}>
+                                        {meta.label}
+                                      </Badge>
+                                      {identity?.email && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-8 w-8 p-0 text-slate-400 hover:text-emerald-600"
+                                          title="Email learner about this engagement issue"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenEmailModal({ email: identity.email!, fullName: identity.fullName ?? 'Learner' });
+                                          }}
+                                        >
+                                          <Mail className="h-4 w-4" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {reasonLabel && <p className="mt-2 text-xs text-slate-600 line-clamp-2">{reasonLabel}</p>}
+                                  <p className="mt-2 text-[10px] text-slate-400">Updated {formatTimestamp(learner.createdAt)}</p>
+                                </button>
                               </div>
-                              <Badge variant="secondary" className={`${meta.badgeClass} border-0`}>
-                                {meta.label}
-                              </Badge>
-                            </div>
-                            {reasonLabel && <p className="mt-2 text-sm text-slate-600">{reasonLabel}</p>}
-                            <p className="mt-1 text-[11px] text-slate-500">Updated {formatTimestamp(learner.createdAt)}</p>
-                          </button>
-                        );
-                      })}
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent opacity-60" />
                     </div>
                   )}
-                </div>
+                </CardContent>
+              </Card>
 
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-inner">
-                  <div className="flex items-center justify-between gap-3">
+              <Card className="border-slate-200 bg-white text-slate-900 shadow-md flex flex-col">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-3 min-h-[56px]">
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">Learner detail</p>
-                      <p className="text-xs text-slate-600">
-                        {selectedIdentity?.fullName
-                          ? `${selectedIdentity.fullName} ? ${selectedIdentity.email ?? 'Email unavailable'}`
-                          : 'Select a learner to drill into their last actions.'}
-                      </p>
+                      <CardTitle className="text-slate-900">Learner detail</CardTitle>
+                      {selectedIdentity && (
+                        <p className="text-sm text-emerald-600 font-medium truncate max-w-[200px]">
+                          {selectedIdentity.fullName}
+                        </p>
+                      )}
                     </div>
                     {selectedLearner && (
                       <Badge
@@ -1032,114 +1091,227 @@ export default function TutorDashboardPage() {
                       </Badge>
                     )}
                   </div>
-                  <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                    {!selectedLearnerId ? (
-                      <p className="text-sm text-slate-600">Select any learner from the list to review their telemetry timeline.</p>
-                    ) : historyLoading || historyFetching ? (
-                      <div className="space-y-2">
-                        {[0, 1, 2].map((index) => (
-                          <Skeleton key={index} className="h-20 w-full rounded-xl bg-slate-100" />
-                        ))}
+                </CardHeader>
+                <CardContent className="flex-1">
+                  {!selectedLearnerId ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in zoom-in duration-300">
+                      <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-4">
+                        <MessageSquare className="w-8 h-8 text-slate-300" />
                       </div>
-                    ) : sortedHistoryEvents.length === 0 ? (
-                      <p className="text-sm text-slate-600">No events recorded for this learner yet.</p>
-                    ) : (
-                      sortedHistoryEvents.map((event, index) => {
-                        const meta = statusMeta[(event.derivedStatus ?? 'unknown') as keyof typeof statusMeta];
-                        const eventLabel = formatEventLabel(event.eventType);
-                        const reasonLabel = formatStatusReason(event.statusReason);
-                        return (
-                          <div
-                            key={event.eventId ?? `${event.eventType}-${event.createdAt}-${event.moduleNo ?? 'm'}-${index}`}
-                            className="rounded-2xl border border-slate-200 bg-white px-3 py-2"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <Badge variant="secondary" className={`${meta.badgeClass} border-0`}>
-                                {meta.label}
-                              </Badge>
-                              <span className="text-[11px] text-slate-500">{formatTimestamp(event.createdAt)}</span>
-                            </div>
-                            <p className="mt-1 text-sm font-semibold text-slate-900">{eventLabel}</p>
-                            {reasonLabel && <p className="text-xs text-slate-600">{reasonLabel}</p>}
-                            <p className="mt-1 text-[11px] text-slate-500">
-                              {(() => {
-                                const topicMeta = event.topicId ? topicTitleLookup.get(event.topicId) : null;
-                                const moduleLabel = topicMeta
-                                  ? topicMeta.moduleName ?? `Module ${topicMeta.moduleNo}`
-                                  : `Module ${event.moduleNo ?? 'n/a'}`;
-                                const topicLabel = topicMeta?.title ?? (event.topicId ? `Topic ${event.topicId.slice(0, 8)}` : 'Topic n/a');
-                                return `${moduleLabel} | ${topicLabel}`;
-                              })()}
-                            </p>
+                      <h3 className="text-lg font-semibold text-slate-900">No learner selected</h3>
+                      <p className="text-sm text-slate-500 max-w-[200px] mt-2">
+                        Select a learner from the list to view their engagement details and recent activity.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="relative group/scroll">
+                      <div className="max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 hover:scrollbar-thumb-slate-300 scroll-smooth pr-1 pb-12">
+                        {historyLoading || historyFetching ? (
+                          <div className="space-y-2">
+                            {[0, 1, 2].map((index) => (
+                              <Skeleton key={index} className="h-20 w-full rounded-xl bg-slate-100" />
+                            ))}
                           </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </div>
+                        ) : sortedHistoryEvents.length === 0 ? (
+                          <div className="text-center py-10 text-slate-500">
+                            <p className="text-sm">No events recorded for this learner yet.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {sortedHistoryEvents.map((event, index) => {
+                              const meta = statusMeta[(event.derivedStatus ?? 'unknown') as keyof typeof statusMeta];
+                              const eventLabel = formatEventLabel(event.eventType);
+                              const reasonLabel = formatStatusReason(event.statusReason);
+                              return (
+                                <div
+                                  key={event.eventId ?? `${event.eventType}-${event.createdAt}-${event.moduleNo ?? 'm'}-${index}`}
+                                  className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm hover:border-slate-200 transition"
+                                >
+                                  <div className="flex items-center justify-between gap-3 mb-2">
+                                    <Badge variant="secondary" className={`${meta.badgeClass} border-0 text-[10px]`}>
+                                      {meta.label}
+                                    </Badge>
+                                    <span className="text-[10px] font-medium text-slate-400">{formatTimestamp(event.createdAt)}</span>
+                                  </div>
+                                  <p className="text-sm font-bold text-slate-900">{eventLabel}</p>
+                                  {reasonLabel && <p className="mt-1 text-xs text-slate-600 italic">"{reasonLabel}"</p>}
+                                  <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400 font-medium">
+                                    <span className="rounded-md bg-slate-50 px-2 py-1">
+                                      {(() => {
+                                        const topicMeta = event.topicId ? topicTitleLookup.get(event.topicId) : null;
+                                        return topicMeta
+                                          ? topicMeta.moduleName ?? `Module ${topicMeta.moduleNo}`
+                                          : `Module ${event.moduleNo ?? 'n/a'}`;
+                                      })()}
+                                    </span>
+                                    <span className="text-slate-200">•</span>
+                                    <span className="truncate">
+                                      {(() => {
+                                        const topicMeta = event.topicId ? topicTitleLookup.get(event.topicId) : null;
+                                        return topicMeta?.title ?? (event.topicId ? `Topic ${event.topicId.slice(0, 8)}` : 'Topic n/a');
+                                      })()}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent opacity-60" />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </section>
 
-          <section id="copilot" className="mt-12 space-y-6">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">AI copilot</p>
-              <h2 className="text-2xl font-semibold text-slate-900">Ask the classroom analyst</h2>
-              <p className="text-sm text-slate-600">Use natural language to query enrollments, engagement trends, or struggling learners.</p>
-            </div>
-            <Card className="border-slate-200 bg-white text-slate-900 shadow-md">
-              <CardContent className="space-y-5 pt-6">
-                <div className="h-64 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-                  {assistantMessages.length === 0 ? (
-                    <div className="text-slate-600">
-                      Example prompts: ?Which learners have been inactive for 7 days?? or ?Summarize completion by module.?
+          {/* Floating AI Copilot Button */}
+          {!isAssistantSheetOpen && (
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="fixed bottom-8 right-8 z-[100]"
+            >
+              <motion.div
+                animate={{
+                  boxShadow: [
+                    "0 0 0 0px rgba(16, 185, 129, 0)",
+                    "0 0 0 15px rgba(16, 185, 129, 0.4)",
+                    "0 0 0 0px rgba(16, 185, 129, 0)"
+                  ]
+                }}
+                transition={{
+                  duration: 2,
+                  repeat: 2, // Pulse 3 times then stop
+                  ease: "easeInOut"
+                }}
+                className="rounded-full"
+              >
+                <Button
+                  onClick={() => setIsAssistantSheetOpen(true)}
+                  className="h-14 px-6 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xl flex items-center gap-2 group transition-all hover:scale-105 active:scale-95"
+                >
+                  <Sparkles className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                  <span className="font-semibold tracking-tight">AI Copilot</span>
+                </Button>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* AI Copilot Side Panel (Sheet) */}
+          <Sheet open={isAssistantSheetOpen} onOpenChange={setIsAssistantSheetOpen}>
+            <SheetContent side="right" className="w-full sm:max-w-[400px] md:max-w-[450px] p-0 border-l border-slate-200 bg-white flex flex-col">
+              <SheetHeader className="p-6 border-b border-slate-200">
+                <div className="flex items-center gap-2 text-emerald-600 mb-1">
+                  <Sparkles className="w-4 h-4" />
+                  <p className="text-[10px] uppercase tracking-[0.3em] font-bold">AI Copilot</p>
+                </div>
+                <SheetTitle className="text-xl font-bold text-slate-900">Classroom Analyst</SheetTitle>
+              </SheetHeader>
+
+              {/* Quick Suggestions */}
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-3">Quick Suggestions</p>
+                <div className="flex flex-col gap-2">
+                  {QUICK_PROMPTS.map((prompt, i) => (
+                    <button
+                      key={i}
+                      onClick={() => performAssistantQuery(prompt)}
+                      className="text-left text-sm p-3 rounded-xl border-2 border-emerald-100 bg-white hover:border-emerald-500 hover:bg-emerald-50/50 transition-all text-slate-700 hover:text-emerald-700 font-medium shadow-sm"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                ref={assistantChatRef}
+                className="flex-1 overflow-y-auto p-6 space-y-4"
+              >
+                {assistantMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-60">
+                    <div className="p-4 rounded-full bg-slate-100">
+                      <MessageSquare className="w-8 h-8 text-slate-400" />
                     </div>
-                  ) : (
-                    assistantMessages.map((message) => (
+                    <p className="text-sm text-slate-500 max-w-[200px]">
+                      Ask about enrollments, stuck learners, or classroom engagement.
+                    </p>
+                  </div>
+                ) : (
+                  assistantMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`flex flex-col ${message.role === 'assistant' ? 'items-start' : 'items-end'}`}
+                    >
                       <div
-                        key={message.id}
-                        className={`mb-3 inline-block max-w-full rounded-2xl px-4 py-2 ${message.role === 'assistant'
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'bg-emerald-50 text-emerald-800'
+                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${message.role === 'assistant'
+                          ? 'bg-slate-100 text-slate-900 rounded-tl-none'
+                          : 'bg-emerald-600 text-white rounded-tr-none shadow-md shadow-emerald-600/20'
                           }`}
                       >
-                        <p className="text-[10px] uppercase tracking-wide opacity-70">
+                        <p className="text-[9px] uppercase tracking-wider opacity-60 font-bold mb-1">
                           {message.role === 'assistant' ? 'Copilot' : 'You'}
                         </p>
-                        <p>{message.content}</p>
+                        <div className="leading-relaxed whitespace-pre-line">
+                          {message.role === 'assistant' && /(?:^|\s|\n)\d{1,2}\./.test(message.content) ? (
+                            <ul className="space-y-1">
+                              {message.content
+                                .split(/(?=\s\d{1,2}\.|\n\d{1,2}\.)|^(\d{1,2}\.)/)
+                                .filter(Boolean)
+                                .map((part, pIdx) => (
+                                  <li key={pIdx} className={pIdx > 0 ? "pt-1" : ""}>
+                                    {part.trim()}
+                                  </li>
+                                ))}
+                            </ul>
+                          ) : (
+                            message.content
+                          )}
+                        </div>
                       </div>
-                    ))
-                  )}
-                </div>
-                <form className="space-y-3" onSubmit={handleAssistantSubmit}>
-                  <Textarea
+                    </div>
+                  ))
+                )}
+                {assistantLoading && (
+                  <div className="flex items-start">
+                    <div className="bg-slate-100 text-slate-900 rounded-2xl rounded-tl-none px-4 py-3 text-sm flex items-center gap-2">
+                      <Loader2 className="w-3 h-3 animate-spin opacity-60" />
+                      <span className="text-xs font-medium opacity-60">Analysing classroom data...</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-slate-200 bg-white">
+                <form onSubmit={handleAssistantSubmit} className="flex flex-row flex-nowrap items-center gap-2">
+                  <Input
                     value={assistantInput}
                     onChange={(event) => setAssistantInput(event.target.value)}
-                    placeholder="Ask about enrollments, stuck learners, quiz performance..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAssistantSubmit(e as any);
+                      }
+                    }}
+                    placeholder="Ask about learners..."
                     disabled={!selectedCourseId}
-                    className="border-slate-300 bg-white text-slate-900 placeholder:text-slate-500"
+                    className="flex-1 border-slate-300 focus:border-emerald-500 bg-white text-slate-900 placeholder:text-slate-500 rounded-xl h-11"
                   />
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button
-                      type="submit"
-                      disabled={!selectedCourseId || assistantLoading}
-                      className="bg-blue-600 text-white hover:bg-blue-500"
-                    >
-                      {assistantLoading ? 'Thinking...' : 'Ask Copilot'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="text-xs text-slate-600"
-                      onClick={() => setAssistantInput('List learners below 50% completion and note their last activity.')}
-                    >
-                      Suggestion
-                    </Button>
-                  </div>
+                  <Button
+                    type="submit"
+                    disabled={!selectedCourseId || assistantLoading || !assistantInput.trim()}
+                    className="bg-emerald-600 text-white hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-600 border border-transparent shadow-sm rounded-xl px-4 h-11 shrink-0 font-bold whitespace-nowrap"
+                  >
+                    {assistantLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Ask'}
+                  </Button>
                 </form>
-              </CardContent>
-            </Card>
-          </section>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+
         </div>
       </div>
 

@@ -54,41 +54,105 @@ const generateCourseDescription = async (
 const ScrollFillNumber = ({ number, sizeClass }: { number: string; sizeClass?: string }) => {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Track scroll progress of this specific element
   const { scrollYProgress } = useScroll({
     target: ref,
     offset: ["start 90%", "center 50%"]
   });
 
-  // Map scroll progress (0 to 1) to percentage string ("0%" to "100%")
-  const fillHeight = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
+  const clipPath = useTransform(
+    scrollYProgress,
+    [0, 1],
+    ["inset(100% 0 0 0)", "inset(0% 0 0 0)"]
+  );
+
+  const baseStyles = `${sizeClass ?? "text-[8rem] md:text-[12rem]"} font-black leading-none tracking-tighter select-none m-0 p-0`;
 
   return (
-    <div className="p-4 overflow-visible relative">
-      <motion.div
-        ref={ref}
-        className={`${sizeClass ?? "text-[8rem] md:text-[12rem]"} font-black leading-[0.85] tracking-tighter shrink-0 select-none`}
+    <div ref={ref} className="relative inline-flex items-center">
+      {/* Background Layer (Outline) */}
+      <div
+        className={`${baseStyles} text-transparent`}
         style={{
-          // Base styles for the outline text
-          WebkitTextStroke: '3px rgba(30, 58, 71, 0.15)',
-          color: 'transparent',
-
-          // Gradient fill setup
-          backgroundImage: 'linear-gradient(to top, #E5583E, #E5583E)',
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'bottom',
-
-          // Clipping
-          WebkitBackgroundClip: 'text',
-          backgroundClip: 'text',
-
-          // Animate the height of the background size based on scroll
-          backgroundSize: useTransform(fillHeight, (h) => `100% ${h}`)
+          WebkitTextStroke: '3px rgba(30, 58, 71, 0.1)',
+          letterSpacing: '-0.05em'
         }}
       >
         {number}
+      </div>
+
+      {/* Foreground Layer (Fill) */}
+      <motion.div
+        className="absolute inset-0 pointer-events-none flex items-center"
+        style={{ clipPath }}
+      >
+        <div
+          className={`${baseStyles} text-[#E5583E]`}
+          style={{
+            WebkitTextStroke: '3px #E5583E', // Match background stroke exactly
+            letterSpacing: '-0.05em'
+          }}
+        >
+          {number}
+        </div>
       </motion.div>
     </div>
+  );
+};
+
+const ScrollRevealItem = ({ title, desc }: { title: string; desc: string }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "center center", "center center", "end start"]
+  });
+
+  const opacity = useTransform(scrollYProgress, [0, 0.25, 0.75, 1], [0.1, 1, 1, 0.1]);
+  const y = useTransform(scrollYProgress, [0, 0.25, 0.75, 1], [20, 0, 0, -20]);
+
+  return (
+    <motion.div
+      ref={ref}
+      style={{ opacity, y }}
+      className="border-b border-[#1E3A47]/10 pb-12 last:border-b-0 last:pb-0"
+    >
+      <h4 className="text-2xl md:text-3xl font-bold text-[#E5583E] tracking-tight mb-4">
+        {title}
+      </h4>
+      <p className="text-lg md:text-xl text-[#1E3A47]/80 font-medium leading-relaxed whitespace-pre-line">
+        {desc}
+      </p>
+    </motion.div>
+  );
+};
+
+const ScrollRevealTutorJourneyStep = ({ id, title, desc }: { id: string; title: string; desc: string }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "center center", "center center", "end start"]
+  });
+
+  const opacity = useTransform(scrollYProgress, [0, 0.2, 0.8, 1], [0.1, 1, 1, 0.1]);
+  const y = useTransform(scrollYProgress, [0, 0.2, 0.8, 1], [30, 0, 0, -30]);
+
+  return (
+    <motion.div
+      ref={ref}
+      style={{ opacity, y }}
+      className="flex flex-col md:flex-row md:items-center gap-12 border-b border-[#1E3A47]/10 pb-12 last:border-b-0"
+    >
+      <div className="flex items-center justify-start">
+        <ScrollFillNumber number={id} sizeClass="text-6xl md:text-[120px]" />
+      </div>
+      <div className="flex-1">
+        <h4 className="text-3xl md:text-4xl font-black text-[#1E3A47] transition-colors duration-300">
+          {title}
+        </h4>
+        <p className="text-lg text-[#1E3A47]/70 mt-2 font-medium leading-relaxed">
+          {desc}
+        </p>
+      </div>
+    </motion.div>
   );
 };
 
@@ -118,6 +182,7 @@ const BecomeTutor: React.FC = () => {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [activeItem, setActiveItem] = useState<number | null>(null);
 
   // Typewriter state
   const fullText = "Your knowledge can change a career.";
@@ -139,7 +204,7 @@ const BecomeTutor: React.FC = () => {
   useEffect(() => {
     let index = 0;
     const timer = setInterval(() => {
-      setTypedText((prev) => fullText.slice(0, index + 1));
+      setTypedText((prev: string) => fullText.slice(0, index + 1));
       index++;
       if (index === fullText.length) clearInterval(timer);
     }, 40);
@@ -205,7 +270,7 @@ const BecomeTutor: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev: TutorApplication) => ({
       ...prev,
       [name]: value
     }));
@@ -360,105 +425,117 @@ const BecomeTutor: React.FC = () => {
       `}</style>
 
       {/* --- Header Section --- */}
-      <section className="pt-32 pb-16 px-6 md:px-12 max-w-[1400px] mx-auto flex flex-col items-center text-center">
+      <section className="pt-32 pb-8 px-6 md:px-12 max-w-[1400px] mx-auto flex flex-col items-center text-center">
         <div className="max-w-4xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#E5583E]/10 text-[#E5583E] text-[10px] md:text-xs font-black uppercase tracking-widest mb-6 reveal">
-            New Cohort 2025
+            New Cohort 2026
           </div>
 
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-black text-[#1E3A47] tracking-tight mb-6 leading-tight min-h-[1.4em]">
             <span className="typewriter-cursor">{typedText}</span>
           </h1>
 
-          <p className="text-lg md:text-2xl text-[#1E3A47]/70 font-medium max-w-2xl mx-auto reveal stagger-1 leading-relaxed">
-            Become a tutor and lead the AI revolution.
+
+
+          <p className="mt-1 text-sm md:text-base text-[#1E3A47]/50 font-medium reveal stagger-1 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+            Built with AI-powered tools, transparent earnings, and full creator control.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-10 reveal stagger-2">
-            <button
-              type="button"
-              onClick={openLoginModal}
-              className="inline-flex items-center gap-2 rounded-full px-8 py-3 bg-[#1E3A47] text-white font-semibold text-sm uppercase tracking-widest shadow-lg shadow-[#1E3A47]/30 transition hover:-translate-y-0.5 hover:bg-[#16232B]"
-            >
-              Login as Tutor
-            </button>
-            <p className="text-sm text-[#1E3A47]/60 text-center max-w-sm">
-              Already teaching with us? Sign in to access your studio dashboard and resources.
+          <div className="flex flex-col items-center gap-6 mt-6 reveal stagger-2">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full">
+              <button
+                type="button"
+                onClick={() => document.getElementById('apply-form')?.scrollIntoView({ behavior: 'smooth' })}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-full px-10 py-4 bg-[#E5583E] text-white font-bold text-sm uppercase tracking-widest shadow-xl shadow-[#E5583E]/20 transition hover:-translate-y-1 hover:bg-[#C03520] active:scale-95"
+              >
+                Apply as Tutor
+              </button>
+              <button
+                type="button"
+                onClick={openLoginModal}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-full px-10 py-4 border-2 border-[#1E3A47]/20 text-[#1E3A47] font-bold text-sm uppercase tracking-widest transition hover:bg-[#1E3A47]/5 hover:border-[#1E3A47]/40 active:scale-95"
+              >
+                Tutor Login
+              </button>
+            </div>
+
+            <p className="text-xs md:text-sm text-[#1E3A47]/40 font-semibold tracking-wide flex items-center gap-2">
+              <span className="w-1 h-1 rounded-full bg-[#E5583E]/40" />
+              “No upfront costs. No exclusivity. You stay in control.”
+              <span className="w-1 h-1 rounded-full bg-[#E5583E]/40" />
             </p>
           </div>
         </div>
       </section>
 
-      {/* --- Why Teach Section (Centered) --- */}
-      <section className="py-16 px-6 md:px-12 max-w-[1400px] mx-auto">
-        <div className="text-center mb-16 reveal">
+      {/* --- Why Teach Section (Interactive List) --- */}
+      <section className="pt-12 pb-24 px-6 md:px-12 max-w-[1000px] mx-auto text-center">
+        <div className="mb-12 reveal">
           <h3 className="text-4xl md:text-5xl font-black text-[#1E3A47] tracking-tight mb-4">Why teach with us?</h3>
-          <p className="text-[#1E3A47]/60 text-lg max-w-lg mx-auto font-medium">We provide the platform, the audience, and the tools so you can focus on teaching.</p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
-          {/* Card 1 */}
-          <div className="reveal stagger-1 group p-8 rounded-[2rem] bg-white border border-[#1E3A47]/5 hover:border-[#E5583E]/20 hover:shadow-xl hover:shadow-[#E5583E]/10 transition-all duration-500">
-            <div className="w-14 h-14 rounded-xl bg-[#FFFBF5] flex items-center justify-center text-[#E5583E] mb-6 group-hover:scale-110 transition-transform duration-500">
-              <BarChart3 size={28} strokeWidth={2.5} />
-            </div>
-            <h4 className="text-2xl font-bold text-[#1E3A47] mb-3">Revenue Share</h4>
-            <p className="text-[#1E3A47]/70 text-base leading-relaxed font-medium">
-              Earn competitive royalties. Top instructors earn <span className="text-[#E5583E] font-bold">6-figures annually</span>.
-            </p>
-          </div>
-
-          {/* Card 2 */}
-          <div className="reveal stagger-2 group p-8 rounded-[2rem] bg-white border border-[#1E3A47]/5 hover:border-[#E5583E]/20 hover:shadow-xl hover:shadow-[#E5583E]/10 transition-all duration-500">
-            <div className="w-14 h-14 rounded-xl bg-[#FFFBF5] flex items-center justify-center text-[#E5583E] mb-6 group-hover:scale-110 transition-transform duration-500">
-              <Video size={28} strokeWidth={2.5} />
-            </div>
-            <h4 className="text-2xl font-bold text-[#1E3A47] mb-3">Studio Quality</h4>
-            <p className="text-[#1E3A47]/70 text-base leading-relaxed font-medium">
-              We provide professional editing and motion graphics. You just bring the knowledge.
-            </p>
-          </div>
-
-          {/* Card 3 */}
-          <div className="reveal stagger-3 group p-8 rounded-[2rem] bg-white border border-[#1E3A47]/5 hover:border-[#E5583E]/20 hover:shadow-xl hover:shadow-[#E5583E]/10 transition-all duration-500">
-            <div className="w-14 h-14 rounded-xl bg-[#FFFBF5] flex items-center justify-center text-[#E5583E] mb-6 group-hover:scale-110 transition-transform duration-500">
-              <Globe size={28} strokeWidth={2.5} />
-            </div>
-            <h4 className="text-2xl font-bold text-[#1E3A47] mb-3">Global Reach</h4>
-            <p className="text-[#1E3A47]/70 text-base leading-relaxed font-medium">
-              Instant access to <span className="text-[#E5583E] font-bold">1M+ active learners</span>. We handle distribution.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* --- How It Works Section (Three-step billboard) --- */}
-      <section className="bg-[#FFFBF5] py-20">
-        <div className="max-w-[1200px] mx-auto px-6 md:px-12 space-y-16">
+        <div className="space-y-16 text-left">
           {[
-            { id: "01", title: "Submit Idea", desc: "Tell us about your expertise and proposed topic." },
-            { id: "02", title: "Design Syllabus", desc: "Collaborate with our curriculum experts." },
-            { id: "03", title: "Launch & Earn", desc: "Go live on the platform. Track analytics and get paid." },
-          ].map((step, index) => (
-            <div
-              key={step.id}
-              className="reveal flex flex-col md:flex-row md:items-center gap-6 border-b border-[#1E3A47]/10 pb-12 last:border-b-0"
-              style={{ transitionDelay: `${index * 150}ms` }}
-            >
-              <div className="w-[140px] flex items-center justify-center">
-                <ScrollFillNumber number={step.id} sizeClass="text-6xl md:text-[120px]" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-3xl md:text-4xl font-black text-[#1E3A47]">{step.title}</h4>
-                <p className="text-lg text-[#1E3A47]/70 mt-2">{step.desc}</p>
-              </div>
-            </div>
+            {
+              title: "Create or Delegate",
+              desc: "Design and own your content end-to-end.\nIf you request our team to create content for you, this service is chargeable."
+            },
+            {
+              title: "Earn Transparently",
+              desc: "Earn through a revenue split based on course performance.\n• 80/20 split when the tutor provides required API keys.\n• 70/30 split when platform-managed APIs are used."
+            },
+            {
+              title: "Grow With AI",
+              desc: "AI-assisted follow-up messaging that helps tutors communicate clearly and professionally with students."
+            },
+            {
+              title: "Track Everything",
+              desc: "Monitor enrollments, engagement, payouts, and learner follow-ups in real time."
+            }
+          ].map((item, idx) => (
+            <ScrollRevealItem
+              key={idx}
+              title={item.title}
+              desc={item.desc}
+            />
           ))}
         </div>
       </section>
 
+      {/* --- How It Works Section (Three-step billboard) --- */}
+      <section className="bg-[#FFFBF5] pt-24 pb-4 overflow-hidden">
+        <div className="max-w-[1000px] mx-auto px-6 md:px-12 space-y-24">
+          {[
+            { id: "01", title: "Submit Idea", desc: "Validate demand using platform insights." },
+            { id: "02", title: "Design Syllabus", desc: "Collaborate with curriculum experts and AI assistance." },
+            { id: "03", title: "Launch & Earn", desc: "Track engagement, performance, payouts, and learner follow-ups in real time." },
+          ].map((step) => (
+            <ScrollRevealTutorJourneyStep
+              key={step.id}
+              id={step.id}
+              title={step.title}
+              desc={step.desc}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* --- AI & Dashboard Confidence Cue --- */}
+      <section className="pt-8 pb-32 px-6 md:px-12 max-w-[1400px] mx-auto text-center reveal">
+        <div className="inline-flex items-center gap-2 mb-8 text-[#E5583E]">
+          <Sparkles size={24} className="animate-pulse" />
+          <span className="text-xs font-black uppercase tracking-[0.3em]">Intelligence Spotlight</span>
+        </div>
+        <h3 className="text-3xl md:text-5xl font-black text-[#1E3A47] max-w-4xl mx-auto leading-tight">
+          “Know who needs attention, when to intervene, and how to follow up — automatically.”
+        </h3>
+        <p className="mt-8 text-[#1E3A47]/40 text-sm font-medium tracking-widest uppercase">
+          AI-Driven Tutor Dashboard
+        </p>
+      </section>
+
       {/* --- Application Form Section (Red Background) --- */}
-      <div className="w-full bg-[#C03520] py-24 relative z-10">
+      <div id="apply-form" className="w-full bg-[#C03520] py-24 relative z-10 scroll-mt-20">
         <div className="text-center mb-12 reveal">
           <h3 className="text-[#FFFBF5]/80 text-sm font-black uppercase tracking-[0.2em] mb-4">Join the Team</h3>
           <p className="text-[#FFFBF5] text-3xl md:text-4xl font-black">Ready to make an impact?</p>
@@ -671,22 +748,22 @@ const BecomeTutor: React.FC = () => {
               <p className="text-[11px] font-black uppercase tracking-[0.4em] text-[#E5583E]">
                 Tutor Console
               </p>
-              <h3 className="text-3xl font-black text-[#1E3A47]">Log in to continue</h3>
+              <h3 className="text-3xl font-black text-[#1E3A47]">Tutor login</h3>
               <p className="text-sm text-[#1E3A47]/70">
-                Access your studio, briefs, and cohort analytics with your tutor credentials.
+                Access your courses, enrollments, and learner progress.
               </p>
             </div>
             <form className="mt-8 space-y-5" onSubmit={handleTutorLogin}>
               <div className="space-y-2">
                 <label className="text-xs font-bold uppercase tracking-wide text-[#1E3A47]">
-                  Work Email
+                  Email
                 </label>
                 <input
                   type="email"
                   value={loginEmail}
                   onChange={(event) => setLoginEmail(event.target.value)}
                   className="w-full rounded-2xl border-2 border-transparent bg-[#F8F9FB] px-4 py-4 text-[#1E3A47] font-semibold placeholder:text-[#1E3A47]/30 focus:border-[#E5583E]/40 focus:outline-none focus:ring-4 focus:ring-[#E5583E]/10"
-                  placeholder="you@metatutor.com"
+                  placeholder="you@ottolearn.com"
                   autoComplete="email"
                   autoFocus
                 />
@@ -712,9 +789,9 @@ const BecomeTutor: React.FC = () => {
               <button
                 type="submit"
                 disabled={isLoggingIn}
-                className="w-full rounded-2xl bg-[#1E3A47] py-4 text-lg font-black uppercase tracking-widest text-white shadow-lg shadow-[#1E3A47]/30 transition hover:-translate-y-0.5 hover:bg-[#16232B] disabled:bg-[#1E3A47]/40 disabled:cursor-not-allowed"
+                className="w-full rounded-2xl bg-[#E5583E] py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-[#E5583E]/20 transition hover:-translate-y-0.5 hover:bg-[#C03520] disabled:bg-[#E5583E]/40 disabled:cursor-not-allowed"
               >
-                {isLoggingIn ? "Signing in..." : "Continue"}
+                {isLoggingIn ? "Signing in..." : "Login as tutor"}
               </button>
               <p className="text-center text-xs text-[#1E3A47]/60">
                 Need an account? Contact the program team to be onboarded.

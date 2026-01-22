@@ -17,7 +17,7 @@ import { activityRouter } from "./routes/activity";
 export function createApp(): Express {
   const app = express();
 
-  const allowedOrigins = [...env.frontendAppUrls, 'http://localhost:5174'];
+  const allowedOrigins = [...env.frontendAppUrls, 'http://localhost:5174', 'http://localhost:5175'];
   const corsOptions: cors.CorsOptions = {
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) {

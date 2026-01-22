@@ -129,12 +129,7 @@ const Navbar: React.FC<NavbarProps> = ({
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <button
-                        onClick={onApplyTutor}
-                        className="hidden md:inline-flex bg-white text-retro-teal border-2 border-retro-teal px-6 py-2 rounded-full font-medium hover:bg-retro-teal hover:text-white transition-all hover:shadow-lg hover:scale-105 active:scale-95 duration-200"
-                    >
-                        Apply as Tutor
-                    </button>
+
                     {isAuthenticated && user ? (
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -275,12 +270,7 @@ const Navbar: React.FC<NavbarProps> = ({
                                     </button>
                                 );
                             })}
-                            <button
-                                onClick={onApplyTutor}
-                                className="w-full mt-2 text-center bg-retro-teal text-white py-2 rounded-lg font-bold"
-                            >
-                                Apply as Tutor
-                            </button>
+
                             {!isAuthenticated && (
                                 <button
                                     onClick={onLogin}
