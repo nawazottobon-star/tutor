@@ -481,7 +481,7 @@ export default function TutorDashboardPage() {
       const response = await apiRequest(
         'POST',
         '/api/tutors/assistant/query',
-        { courseId: selectedCourseId, question: trimmedQuestion },
+        { courseId: selectedCourseId, cohortId: selectedCohortId, question: trimmedQuestion },
         { headers }
       );
       const payload = await response.json();

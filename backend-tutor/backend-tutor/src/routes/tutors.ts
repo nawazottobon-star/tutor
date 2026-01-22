@@ -106,6 +106,7 @@ tutorsRouter.post(
     }
 
     const courseId = typeof req.body?.courseId === "string" ? req.body.courseId.trim() : "";
+    const cohortId = typeof req.body?.cohortId === "string" ? req.body.cohortId.trim() : undefined;
     const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
 
     if (!courseId) {
@@ -124,7 +125,7 @@ tutorsRouter.post(
     }
 
     try {
-      const snapshot = await buildTutorCourseSnapshot(courseId);
+      const snapshot = await buildTutorCourseSnapshot(courseId, cohortId);
       const snapshotText = formatTutorSnapshot(snapshot);
       const prompt = [
         snapshotText,

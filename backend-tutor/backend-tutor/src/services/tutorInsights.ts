@@ -11,6 +11,17 @@ export type TutorLearnerSnapshot = {
   totalModules: number;
   percent: number;
   lastActivity?: Date | null;
+  cohortName?: string;
+};
+
+export type CohortSummary = {
+  cohortId: string;
+  name: string;
+  isActive: boolean;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  memberCount: number;
+  averageCompletion: number;
 };
 
 export type TutorCourseSnapshot = {
@@ -20,6 +31,12 @@ export type TutorCourseSnapshot = {
     slug: string;
     description?: string | null;
   };
+  cohorts: CohortSummary[];
+  selectedCohort?: {
+    cohortId: string;
+    name: string;
+    memberCount: number;
+  };
   stats: {
     totalEnrollments: number;
     newThisWeek: number;
@@ -28,9 +45,10 @@ export type TutorCourseSnapshot = {
     atRiskLearners: number;
   };
   learners: TutorLearnerSnapshot[];
+  allCohortLearners: Map<string, TutorLearnerSnapshot[]>;
 };
 
-export async function buildTutorCourseSnapshot(courseId: string): Promise<TutorCourseSnapshot> {
+export async function buildTutorCourseSnapshot(courseId: string, cohortId?: string): Promise<TutorCourseSnapshot> {
   const course = await prisma.course.findUnique({
     where: { courseId },
     select: {
@@ -53,7 +71,28 @@ export async function buildTutorCourseSnapshot(courseId: string): Promise<TutorC
   });
   const totalModules = moduleNumbers.length;
 
-  const enrollments = await prisma.enrollment.findMany({
+  // Fetch ALL cohorts for this course
+  const allCohorts = await prisma.cohort.findMany({
+    where: { courseId },
+    include: {
+      members: {
+        include: {
+          user: {
+            select: {
+              fullName: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: [
+      { startsAt: "desc" },
+      { createdAt: "desc" },
+    ],
+  });
+
+  // Fetch ALL enrollments for the course
+  const allEnrollments = await prisma.enrollment.findMany({
     where: { courseId },
     select: {
       enrollmentId: true,
@@ -70,6 +109,7 @@ export async function buildTutorCourseSnapshot(courseId: string): Promise<TutorC
     orderBy: { enrolledAt: "asc" },
   });
 
+  // Fetch progress for ALL users in the course
   const progressRows = await prisma.$queryRaw<
     { user_id: string; module_no: number; quiz_passed: boolean; updated_at: Date | null }[]
   >(Prisma.sql`
@@ -90,22 +130,127 @@ export async function buildTutorCourseSnapshot(courseId: string): Promise<TutorC
     progressByUser.set(row.user_id, entry);
   });
 
-  const learners: TutorLearnerSnapshot[] = enrollments.map((enrollment) => {
-    const progress = progressByUser.get(enrollment.userId);
-    const completedModules = progress ? progress.passedModules.size : 0;
-    const percent =
-      totalModules === 0 ? 0 : Math.min(100, Math.round((completedModules / totalModules) * 100));
+  // Build learner snapshots for ALL cohorts
+  const allCohortLearners = new Map<string, TutorLearnerSnapshot[]>();
+
+  allCohorts.forEach((cohort) => {
+    const cohortLearners = cohort.members.map((member) => {
+      let displayName = "Learner";
+      if (member.user?.fullName) {
+        displayName = member.user.fullName;
+      } else {
+        const emailPrefix = member.email.split('@')[0];
+        displayName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1);
+      }
+
+      const progress = member.userId ? progressByUser.get(member.userId) : null;
+      const completedModules = progress ? progress.passedModules.size : 0;
+      const percent =
+        totalModules === 0 ? 0 : Math.min(100, Math.round((completedModules / totalModules) * 100));
+
+      return {
+        userId: member.userId || `temp-${member.email}`,
+        fullName: displayName,
+        email: member.email,
+        enrolledAt: member.addedAt,
+        completedModules,
+        totalModules,
+        percent,
+        lastActivity: progress?.lastActivity ?? member.addedAt,
+        cohortName: cohort.name,
+      };
+    });
+
+    allCohortLearners.set(cohort.cohortId, cohortLearners);
+  });
+
+  // Build cohort summaries
+  const cohortSummaries: CohortSummary[] = allCohorts.map((cohort) => {
+    const members = cohort.members;
+    const memberUserIds = members.map(m => m.userId).filter((id): id is string => id !== null);
+
+    let totalCompletion = 0;
+    let validMemberCount = 0;
+
+    memberUserIds.forEach(userId => {
+      const progress = progressByUser.get(userId);
+      if (progress) {
+        const completedModules = progress.passedModules.size;
+        const percent = totalModules === 0 ? 0 : Math.min(100, Math.round((completedModules / totalModules) * 100));
+        totalCompletion += percent;
+        validMemberCount++;
+      }
+    });
+
+    const averageCompletion = validMemberCount > 0 ? Math.round(totalCompletion / validMemberCount) : 0;
+
     return {
-      userId: enrollment.userId,
-      fullName: enrollment.user.fullName,
-      email: enrollment.user.email,
-      enrolledAt: enrollment.enrolledAt,
-      completedModules,
-      totalModules,
-      percent,
-      lastActivity: progress?.lastActivity ?? enrollment.enrolledAt,
+      cohortId: cohort.cohortId,
+      name: cohort.name,
+      isActive: cohort.isActive,
+      startsAt: cohort.startsAt,
+      endsAt: cohort.endsAt,
+      memberCount: members.length,
+      averageCompletion,
     };
   });
+
+  // Determine which learners to show in the main list
+  let learners: TutorLearnerSnapshot[];
+  let selectedCohortInfo: { cohortId: string; name: string; memberCount: number } | undefined;
+
+  if (cohortId) {
+    // If cohortId is provided, focus on that cohort's learners
+    const cohortLearners = allCohortLearners.get(cohortId);
+
+    if (cohortLearners) {
+      const selectedCohort = allCohorts.find(c => c.cohortId === cohortId);
+      if (selectedCohort) {
+        selectedCohortInfo = {
+          cohortId: selectedCohort.cohortId,
+          name: selectedCohort.name,
+          memberCount: selectedCohort.members.length,
+        };
+      }
+      learners = cohortLearners;
+    } else {
+      // Cohort not found, fall back to all enrollments
+      learners = allEnrollments.map((enrollment) => {
+        const progress = progressByUser.get(enrollment.userId);
+        const completedModules = progress ? progress.passedModules.size : 0;
+        const percent =
+          totalModules === 0 ? 0 : Math.min(100, Math.round((completedModules / totalModules) * 100));
+        return {
+          userId: enrollment.userId,
+          fullName: enrollment.user.fullName,
+          email: enrollment.user.email,
+          enrolledAt: enrollment.enrolledAt,
+          completedModules,
+          totalModules,
+          percent,
+          lastActivity: progress?.lastActivity ?? enrollment.enrolledAt,
+        };
+      });
+    }
+  } else {
+    // No cohort selected, show all enrollments
+    learners = allEnrollments.map((enrollment) => {
+      const progress = progressByUser.get(enrollment.userId);
+      const completedModules = progress ? progress.passedModules.size : 0;
+      const percent =
+        totalModules === 0 ? 0 : Math.min(100, Math.round((completedModules / totalModules) * 100));
+      return {
+        userId: enrollment.userId,
+        fullName: enrollment.user.fullName,
+        email: enrollment.user.email,
+        enrolledAt: enrollment.enrolledAt,
+        completedModules,
+        totalModules,
+        percent,
+        lastActivity: progress?.lastActivity ?? enrollment.enrolledAt,
+      };
+    });
+  }
 
   const now = new Date();
   const newThisWeek = learners.filter(
@@ -133,6 +278,8 @@ export async function buildTutorCourseSnapshot(courseId: string): Promise<TutorC
       slug: course.slug,
       description: course.description,
     },
+    cohorts: cohortSummaries,
+    selectedCohort: selectedCohortInfo,
     stats: {
       totalEnrollments: learners.length,
       newThisWeek,
@@ -141,29 +288,58 @@ export async function buildTutorCourseSnapshot(courseId: string): Promise<TutorC
       atRiskLearners,
     },
     learners,
+    allCohortLearners,
   };
 }
 
 export function formatTutorSnapshot(snapshot: TutorCourseSnapshot): string {
-  const { course, stats, learners } = snapshot;
+  const { course, cohorts, selectedCohort, stats, learners, allCohortLearners } = snapshot;
+
+  // Format cohort information with member details
+  const cohortLines = cohorts.map((cohort, index) => {
+    const status = cohort.isActive ? "active" : "inactive";
+    const startDate = cohort.startsAt ? formatDate(cohort.startsAt) : "not set";
+
+    // Get learners for this cohort
+    const cohortLearnersList = allCohortLearners.get(cohort.cohortId) || [];
+
+    // For cohorts with 15 or fewer members, show all names. For larger cohorts, show first 15
+    const displayLimit = cohortLearnersList.length <= 15 ? cohortLearnersList.length : 15;
+    const learnerNames = cohortLearnersList.slice(0, displayLimit).map(l => l.fullName).join(", ");
+    const moreCount = cohortLearnersList.length > displayLimit ? ` and ${cohortLearnersList.length - displayLimit} more` : "";
+
+    return `${index + 1}. ${cohort.name} (${status}) – ${cohort.memberCount} members, ${cohort.averageCompletion}% avg completion. Starts: ${startDate}.\n   Students: ${learnerNames}${moreCount}`;
+  }).join("\n");
+
+  // Format detailed learner roster for currently viewed cohort
   const rosterLines = (learners ?? [])
     .slice(0, 40)
     .map((learner, index) => {
       const enrolled = formatDate(learner.enrolledAt);
       const lastActivity = learner.lastActivity ? formatDate(learner.lastActivity) : "unknown";
-      return `${index + 1}. ${learner.fullName} (${learner.email}) – ${learner.percent}% complete (${learner.completedModules}/${learner.totalModules} modules). Enrolled ${enrolled}. Last activity ${lastActivity}.`;
+      const cohortInfo = learner.cohortName ? ` [${learner.cohortName}]` : "";
+      return `${index + 1}. ${learner.fullName}${cohortInfo} (${learner.email}) – ${learner.percent}% complete (${learner.completedModules}/${learner.totalModules} modules). Enrolled ${enrolled}. Last activity ${lastActivity}.`;
     })
     .join("\n");
 
-  return [
+  const parts = [
     `Course: ${course.title} (slug: ${course.slug})`,
     course.description ? `Description: ${course.description}` : undefined,
-    `Stats: total learners ${stats.totalEnrollments}, new this week ${stats.newThisWeek}, average completion ${stats.averageCompletion}%, active in last 7 days ${stats.activeThisWeek}, at risk ${stats.atRiskLearners}.`,
-    "Learner roster (top 40):",
-    rosterLines || "No learners yet.",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `\nCohorts (${cohorts.length} total):`,
+    cohortLines || "No cohorts yet.",
+  ];
+
+  if (selectedCohort) {
+    parts.push(`\nCurrently viewing: ${selectedCohort.name} (${selectedCohort.memberCount} members)`);
+  }
+
+  parts.push(
+    `\nStats for ${selectedCohort ? selectedCohort.name : "all enrollments"}: total learners ${stats.totalEnrollments}, new this week ${stats.newThisWeek}, average completion ${stats.averageCompletion}%, active in last 7 days ${stats.activeThisWeek}, at risk ${stats.atRiskLearners}.`,
+    `\nDetailed roster for ${selectedCohort ? selectedCohort.name : "all enrollments"} (top 40):`,
+    rosterLines || "No learners yet."
+  );
+
+  return parts.filter(Boolean).join("\n");
 }
 
 function formatDate(value: Date): string {
